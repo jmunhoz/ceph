@@ -417,6 +417,8 @@ protected:
   const char *supplied_etag;
   const char *if_match;
   const char *if_nomatch;
+  const char *copy_source;
+  const char *copy_source_range;
   string etag;
   bool chunked_upload;
   RGWAccessControlPolicy policy;
@@ -436,6 +438,8 @@ public:
     supplied_etag = NULL;
     if_match = NULL;
     if_nomatch = NULL;
+    copy_source = NULL;
+    copy_source_range = NULL;
     chunked_upload = false;
     obj_manifest = NULL;
     mtime = 0;
@@ -455,8 +459,14 @@ public:
   void pre_exec();
   void execute();
 
+  int get_data_cb(bufferlist& bl, off_t bl_ofs, off_t bl_len);
+
   virtual int get_params() = 0;
   virtual int get_data(bufferlist& bl) = 0;
+
+  // TODO: virtual pure?
+  virtual int get_data(string bucket_name, string object_name, off_t fst, off_t lst, bufferlist& bl);
+
   virtual void send_response() = 0;
   virtual const string name() { return "put_obj"; }
   virtual RGWOpType get_type() { return RGW_OP_PUT_OBJ; }

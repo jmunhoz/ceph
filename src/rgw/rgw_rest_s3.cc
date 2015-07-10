@@ -670,6 +670,10 @@ int RGWPutObj_ObjStore_S3::get_params()
   if_match = s->info.env->get("HTTP_IF_MATCH");
   if_nomatch = s->info.env->get("HTTP_IF_NONE_MATCH");
 
+  /* handle upload part - copy parameters if needed */
+  copy_source = s->info.env->get("HTTP_X_AMZ_COPY_SOURCE");
+  copy_source_range = s->info.env->get("HTTP_X_AMZ_COPY_SOURCE_RANGE");
+
   return RGWPutObj_ObjStore::get_params();
 }
 
@@ -693,8 +697,32 @@ void RGWPutObj_ObjStore_S3::send_response()
       ret = get_success_retcode(s->cct->_conf->rgw_s3_success_create_obj_status);
       set_req_state_err(s, ret);
     }
-    dump_etag(s, etag.c_str());
-    dump_content_length(s, 0);
+    if (!s->info.env->get("HTTP_X_AMZ_COPY_SOURCE")) {
+      dump_etag(s, etag.c_str());
+      dump_content_length(s, 0);
+    } else {
+      // HACK: branch under review
+      //dump_etag(s, etag.c_str());
+      //end_header(s, this, "application/xml");
+      end_header(s, this);
+      // FIXME: grab sec
+      //time_t sec = info.modified.sec();
+      time_t sec;
+      struct tm tmp;
+      gmtime_r(&sec, &tmp);
+      char buf[TIME_BUF_SIZE];
+
+      s->formatter->open_object_section("CopyPartResult");
+      if (strftime(buf, sizeof(buf), "%Y-%m-%dT%T.000Z", &tmp) > 0) {
+        // FIXME: remove hardcode date
+        //s->formatter->dump_string("LastModified", buf);
+        s->formatter->dump_string("LastModified", "2015-07-27T08:18:00");
+      }
+      s->formatter->dump_string("ETag", etag);
+      s->formatter->close_section();
+      rgw_flush_formatter_and_reset(s, s->formatter);
+      return;
+    }
   }
   if (s->system_request && mtime) {
     dump_epoch_header(s, "Rgwx-Mtime", mtime);
@@ -2189,7 +2217,12 @@ int RGWHandler_ObjStore_S3::init(RGWRados *store, struct req_state *s, RGWClient
 
   s->has_acl_header = s->info.env->exists_prefix("HTTP_X_AMZ_GRANT");
 
-  s->copy_source = s->info.env->get("HTTP_X_AMZ_COPY_SOURCE");
+  if (!s->info.env->get("HTTP_X_AMZ_COPY_SOURCE_RANGE")) {
+    s->copy_source = s->info.env->get("HTTP_X_AMZ_COPY_SOURCE");
+  } else {
+    s->copy_source = NULL;
+  }
+
   if (s->copy_source) {
     ret = RGWCopyObj::parse_copy_location(s->copy_source, s->src_bucket_name, s->src_object);
     if (!ret) {
