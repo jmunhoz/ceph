@@ -703,8 +703,12 @@ void RGWPutObj_ObjStore_S3::send_response()
     } else {
       // HACK: branch under review
       //dump_etag(s, etag.c_str());
-      //end_header(s, this, "application/xml");
-      end_header(s, this);
+      //end_header(s, this);
+      end_header(s, this, "application/xml");
+      //dump_start(s);
+      //if (ret < 0)
+      //  return;
+
       // FIXME: grab sec
       //time_t sec = info.modified.sec();
       time_t sec;
@@ -712,11 +716,12 @@ void RGWPutObj_ObjStore_S3::send_response()
       gmtime_r(&sec, &tmp);
       char buf[TIME_BUF_SIZE];
 
-      s->formatter->open_object_section("CopyPartResult");
+      s->formatter->open_object_section_in_ns("CopyPartResult",
+          "http://s3.amazonaws.com/doc/2006-03-01/");
       if (strftime(buf, sizeof(buf), "%Y-%m-%dT%T.000Z", &tmp) > 0) {
         // FIXME: remove hardcode date
         //s->formatter->dump_string("LastModified", buf);
-        s->formatter->dump_string("LastModified", "2015-07-27T08:18:00");
+        s->formatter->dump_string("LastModified", "2015-08-05T10:14:08.000Z");
       }
       s->formatter->dump_string("ETag", etag);
       s->formatter->close_section();
