@@ -1742,6 +1742,12 @@ int RGWPutObj::get_data_cb(bufferlist& bl, off_t bl_ofs, off_t bl_len)
   // TODO: here we can call some kind of
   // send_response_data(bl, bl_ofs, bl_len)
   // in order to answer client if needed
+
+  bufferlist bl_tmp;
+  bl.copy(bl_ofs, bl_len, bl_tmp);
+
+  bl_aux.append(bl_tmp);
+
   return bl_len;
 }
 
@@ -1792,6 +1798,8 @@ int RGWPutObj::get_data(string bucket_name, string object_name, off_t fst, off_t
   }
 
   dout(10) << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX read_op.iterate() ok - len : " << ret << dendl;
+
+  //dout(10) << "YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY bl = " << bl[0] << bl[1] << bl[2] << bl[3] << dendl;
 
   return ret;
 }

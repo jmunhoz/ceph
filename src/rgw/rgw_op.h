@@ -430,6 +430,9 @@ protected:
   uint64_t olh_epoch;
   string version_id;
 
+  // HACK
+  bufferlist bl_aux;
+
 public:
   RGWPutObj() {
     ret = 0;
