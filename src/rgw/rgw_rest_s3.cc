@@ -705,7 +705,7 @@ void RGWPutObj_ObjStore_S3::send_response()
       // HACK: branch under review
       //dump_etag(s, etag.c_str());
       //end_header(s, this);
-      //end_header(s, this, "application/xml");
+      end_header(s, this, "application/xml");
       //dump_start(s);
       //if (ret < 0)
       //  return;
