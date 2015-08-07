@@ -701,14 +701,16 @@ void RGWPutObj_ObjStore_S3::send_response()
       dump_etag(s, etag.c_str());
       dump_content_length(s, 0);
     } else {
+      dump_errno(s);
       // HACK: branch under review
       //dump_etag(s, etag.c_str());
       //end_header(s, this);
-      end_header(s, this, "application/xml");
+      //end_header(s, this, "application/xml");
       //dump_start(s);
       //if (ret < 0)
       //  return;
 
+      dump_start(s);
       // FIXME: grab sec
       //time_t sec = info.modified.sec();
       time_t sec;
