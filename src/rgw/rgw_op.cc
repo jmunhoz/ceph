@@ -1923,6 +1923,8 @@ void RGWPutObj::execute()
 
   do {
     bufferlist data;
+    if (fst > lst)
+      break;
     if (!copy_source) {
       len = get_data(data);
     } else {
@@ -1935,6 +1937,7 @@ void RGWPutObj::execute()
       len = get_data(bucket, object, fst, lst, data);
       // FIXME: this is a hack
       s->content_length += len;
+      fst += len;
     }
     if (len < 0) {
       ret = len;
