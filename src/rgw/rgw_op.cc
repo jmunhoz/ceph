@@ -1934,8 +1934,12 @@ void RGWPutObj::execute()
       //} else {
       //  len = get_data_csr(bucket, object, 0, 0, data);
       //}
-      len = get_data(bucket, object, fst, lst, data);
+      ret = get_data(bucket, object, fst, lst, data);
+      if (ret < 0)
+       goto done;
+
       // FIXME: this is a hack
+      len = data.length();
       s->content_length += len;
       fst += len;
     }
