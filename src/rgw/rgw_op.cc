@@ -1765,20 +1765,20 @@ int RGWPutObj::get_data(string bucket_name, string object_name, off_t fst, off_t
 
   dout(10) << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX bucket owner : " << bucket_info.owner << dendl;
 
-  RGWAccessControlPolicy _bucket_policy(s->cct);
-  RGWAccessControlPolicy *bucket_policy;
   int64_t new_ofs, new_end;
-  uint64_t total_len;
 
   new_ofs = fst;
   new_end = lst;
 
   /* dry run to find out total length */
-  ret = iterate_user_manifest_parts(s->cct, store, new_ofs, new_end, bucket_info.bucket, object_name, bucket_policy, &total_len, NULL, NULL);
-  if (ret < 0)
-    return ret;
+  //RGWAccessControlPolicy _bucket_policy(s->cct);
+  //RGWAccessControlPolicy *bucket_policy;
+  //uint64_t total_len;
+  //ret = iterate_user_manifest_parts(s->cct, store, new_ofs, new_end, bucket_info.bucket, object_name, bucket_policy, &total_len, NULL, NULL);
+  //if (ret < 0)
+  //  return ret;
 
-  dout(10) << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX iterate_user_manifest_parts ok - total_len : " << total_len << dendl;
+  //dout(10) << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX iterate_user_manifest_parts ok - total_len : " << total_len << dendl;
 
   rgw_obj_key obj_key(object_name);
   rgw_obj obj(bucket_info.bucket, obj_key);
@@ -1797,7 +1797,7 @@ int RGWPutObj::get_data(string bucket_name, string object_name, off_t fst, off_t
     return ret;
   }
 
-  dout(10) << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX read_op.iterate() ok - len : " << ret << dendl;
+  dout(10) << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX read_op.iterate() ok - part len : " << ret << dendl;
 
   //dout(10) << "YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY bl = " << bl[0] << bl[1] << bl[2] << bl[3] << dendl;
 
