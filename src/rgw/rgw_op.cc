@@ -1797,9 +1797,9 @@ int RGWPutObj::get_data(string bucket_name, string object_name, off_t fst, off_t
     return ret;
   }
 
-  dout(10) << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX read_op.iterate() ok - part len : " << ret << dendl;
+  bl_aux.copy(0, bl_aux.length(), bl);
 
-  //dout(10) << "YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY bl = " << bl[0] << bl[1] << bl[2] << bl[3] << dendl;
+  dout(10) << "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX read_op.iterate() ok - part len : " << ret << dendl;
 
   return ret;
 }
