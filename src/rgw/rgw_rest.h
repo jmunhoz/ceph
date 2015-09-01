@@ -194,6 +194,8 @@ class RGWCopyObj_ObjStore : public RGWCopyObj {
 public:
   RGWCopyObj_ObjStore() {}
   ~RGWCopyObj_ObjStore() {}
+
+  int get_params();
 };
 
 class RGWGetACLs_ObjStore : public RGWGetACLs {
