@@ -1443,10 +1443,8 @@ int RGWCopyObj_ObjStore_S3::init_dest_policy()
 
 int RGWCopyObj_ObjStore_S3::get_params()
 {
-  if (s->info.env->get("HTTP_X_AMZ_COPY_SOURCE_RANGE")) {
-    return -ERR_NOT_IMPLEMENTED;
-  }
-
+  copy_source = s->copy_source;
+  copy_source_range = s->info.env->get("HTTP_X_AMZ_COPY_SOURCE_RANGE");
   if_mod = s->info.env->get("HTTP_X_AMZ_COPY_IF_MODIFIED_SINCE");
   if_unmod = s->info.env->get("HTTP_X_AMZ_COPY_IF_UNMODIFIED_SINCE");
   if_match = s->info.env->get("HTTP_X_AMZ_COPY_IF_MATCH");
@@ -1456,6 +1454,25 @@ int RGWCopyObj_ObjStore_S3::get_params()
   src_object = s->src_object;
   dest_bucket_name = s->bucket.name;
   dest_object = s->object.name;
+
+  if (copy_source_range) {
+    string range = copy_source_range;
+    size_t pos = range.find("=");
+    if (pos == std::string::npos) {
+      ldout(s->cct, 0) << "x-amz-copy-source-range bad format" << dendl;
+      return -EINVAL;
+    }
+    range = range.substr(pos + 1, range.size());
+    pos = range.find("-");
+    if (pos == std::string::npos) {
+      ldout(s->cct, 0) << "x-amz-copy-source-range bad format" << dendl;
+      return -EINVAL;
+    }
+    string first = range.substr(0, pos);
+    string last = range.substr(pos + 1, range.size());
+    copy_source_range_fst = strtoull(first.c_str(), NULL, 10);
+    copy_source_range_lst = strtoull(last.c_str(), NULL, 10);
+  }
 
   if (s->system_request) {
     source_zone = s->info.args.get(RGW_SYS_PARAM_PREFIX "source-zone");
@@ -1499,13 +1516,18 @@ int RGWCopyObj_ObjStore_S3::get_params()
 void RGWCopyObj_ObjStore_S3::send_partial_response(off_t ofs)
 {
   if (!sent_header) {
-    if (ret)
-    set_req_state_err(s, ret);
+    if (ret) {
+      set_req_state_err(s, ret);
+    }
     dump_errno(s);
-
     end_header(s, this, "application/xml");
-    if (ret == 0) {
-      s->formatter->open_object_section("CopyObjectResult");
+    if (!copy_source_range) {
+      if (ret == 0) {
+        s->formatter->open_object_section("CopyObjectResult");
+      }
+    } else {
+      s->formatter->open_object_section_in_ns("CopyPartResult",
+          "http://s3.amazonaws.com/doc/2006-03-01/");
     }
     sent_header = true;
   } else {

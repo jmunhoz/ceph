@@ -620,7 +620,12 @@ public:
 
 class RGWCopyObj : public RGWOp {
 protected:
+  RGWAccessControlPolicy policy;
   RGWAccessControlPolicy dest_policy;
+  const char *copy_source;
+  const char *copy_source_range;
+  off_t copy_source_range_fst = 0;
+  off_t copy_source_range_lst = 0;
   const char *if_mod;
   const char *if_unmod;
   const char *if_match;
@@ -655,11 +660,21 @@ protected:
   string version_id;
   uint64_t olh_epoch;
 
+  bufferlist bl_aux;
+
+  const char *supplied_md5_b64;
+  const char *supplied_etag;
+  const char *obj_manifest;
+  bool chunked_upload;
+
+  MD5 *user_manifest_parts_hash;
 
   int init_common();
 
 public:
   RGWCopyObj() {
+    copy_source = NULL;
+    copy_source_range = NULL;
     if_mod = NULL;
     if_unmod = NULL;
     if_match = NULL;
@@ -677,18 +692,31 @@ public:
     attrs_mod = RGWRados::ATTRSMOD_NONE;
     last_ofs = 0;
     olh_epoch = 0;
+    supplied_md5_b64 = NULL;
+    obj_manifest = NULL;
+    chunked_upload = false;
+    supplied_etag = NULL;
+    user_manifest_parts_hash = NULL;
+
   }
 
   static bool parse_copy_location(const string& src, string& bucket_name, rgw_obj_key& object);
 
   virtual void init(RGWRados *store, struct req_state *s, RGWHandler *h) {
     RGWOp::init(store, s, h);
+    policy.set_ctx(s->cct);
     dest_policy.set_ctx(s->cct);
   }
+
+  RGWPutObjProcessor *select_processor(RGWObjectCtx& obj_ctx, bool *is_multipart);
+  void dispose_processor(RGWPutObjProcessor *processor);
+
   int verify_permission();
   void pre_exec();
   void execute();
   void progress_cb(off_t ofs);
+  int get_data_cb(bufferlist& bl, off_t bl_ofs, off_t bl_len);
+  int get_data(string bucket_name, string object_name, off_t fst, off_t lst, bufferlist& bl);
 
   virtual int init_dest_policy() { return 0; }
   virtual int get_params() = 0;

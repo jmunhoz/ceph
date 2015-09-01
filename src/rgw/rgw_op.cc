@@ -301,7 +301,7 @@ static int read_policy(RGWRados *store, struct req_state *s,
     return -ERR_USER_SUSPENDED;
   }
 
-  if (!object.empty() && !upload_id.empty()) {
+  if (!object.empty() && !upload_id.empty() && !s->info.env->get("HTTP_X_AMZ_COPY_SOURCE_RANGE")) {
     /* multipart upload */
     RGWMPObj mp(object.name, upload_id);
     string oid = mp.get_meta();
@@ -2560,9 +2560,96 @@ void RGWCopyObj::progress_cb(off_t ofs)
   last_ofs = ofs;
 }
 
+RGWPutObjProcessor *RGWCopyObj::select_processor(RGWObjectCtx& obj_ctx, bool *is_multipart)
+{
+  RGWPutObjProcessor *processor;
+
+  bool multipart = s->info.args.exists("uploadId");
+
+  uint64_t part_size = s->cct->_conf->rgw_obj_stripe_size;
+
+  if (!multipart) {
+    processor = new RGWPutObjProcessor_Atomic(obj_ctx, s->bucket_info, s->bucket, s->object.name, part_size, s->req_id, s->bucket_info.versioning_enabled());
+    (static_cast<RGWPutObjProcessor_Atomic *>(processor))->set_olh_epoch(olh_epoch);
+    (static_cast<RGWPutObjProcessor_Atomic *>(processor))->set_version_id(version_id);
+  } else {
+    processor = new RGWPutObjProcessor_Multipart(obj_ctx, s->bucket_info, part_size, s);
+  }
+
+  if (is_multipart) {
+    *is_multipart = multipart;
+  }
+
+  return processor;
+}
+
+void RGWCopyObj::dispose_processor(RGWPutObjProcessor *processor)
+{
+  delete processor;
+}
+
 void RGWCopyObj::pre_exec()
 {
   rgw_bucket_object_pre_exec(s);
+}
+
+class RGWCopyObj_CB : public RGWGetDataCB
+{
+  RGWCopyObj *op;
+public:
+  RGWCopyObj_CB(RGWCopyObj *_op) : op(_op) {}
+  virtual ~RGWCopyObj_CB() {}
+
+  int handle_data(bufferlist& bl, off_t bl_ofs, off_t bl_len) {
+    return op->get_data_cb(bl, bl_ofs, bl_len);
+  }
+};
+
+int RGWCopyObj::get_data_cb(bufferlist& bl, off_t bl_ofs, off_t bl_len)
+{
+  bufferlist bl_tmp;
+  bl.copy(bl_ofs, bl_len, bl_tmp);
+
+  bl_aux.append(bl_tmp);
+
+  return bl_len;
+}
+
+int RGWCopyObj::get_data(string bucket_name, string object_name, off_t fst, off_t lst, bufferlist& bl)
+{
+  RGWObjectCtx& obj_ctx = *static_cast<RGWObjectCtx *>(s->obj_ctx);
+  RGWBucketInfo bucket_info;
+  RGWCopyObj_CB cb(this);
+  int ret = 0;
+
+  ret = store->get_bucket_info(obj_ctx, bucket_name, bucket_info, NULL);
+  if (ret < 0) {
+    return ret;
+  }
+
+  int64_t new_ofs, new_end;
+
+  new_ofs = fst;
+  new_end = lst;
+
+  rgw_obj_key obj_key(object_name);
+  rgw_obj obj(bucket_info.bucket, obj_key);
+
+  RGWRados::Object op_target(store, bucket_info, *static_cast<RGWObjectCtx *>(s->obj_ctx), obj);
+  RGWRados::Object::Read read_op(&op_target);
+
+  ret = read_op.prepare(&new_ofs, &new_end);
+  if (ret < 0)
+    return ret;
+
+  ret = read_op.iterate(new_ofs, new_end, &cb);
+  if (ret < 0) {
+    return ret;
+  }
+
+  bl_aux.copy(0, bl_aux.length(), bl);
+
+  return ret;
 }
 
 void RGWCopyObj::execute()
@@ -2570,38 +2657,262 @@ void RGWCopyObj::execute()
   if (init_common() < 0)
     return;
 
-  rgw_obj src_obj(src_bucket, src_object);
-  rgw_obj dst_obj(dest_bucket, dest_object);
+  copy_source_range = s->info.env->get("HTTP_X_AMZ_COPY_SOURCE_RANGE");
 
-  RGWObjectCtx& obj_ctx = *static_cast<RGWObjectCtx *>(s->obj_ctx);
-  obj_ctx.set_atomic(src_obj);
-  obj_ctx.set_atomic(dst_obj);
+  if (!copy_source_range) {
 
-  ret = store->copy_obj(obj_ctx,
-                        s->user.user_id,
-                        client_id,
-                        op_id,
-                        &s->info,
-                        source_zone,
-                        dst_obj,
-                        src_obj,
-                        dest_bucket_info,
-                        src_bucket_info,
-                        &src_mtime,
-                        &mtime,
-                        mod_ptr,
-                        unmod_ptr,
-                        if_match,
-                        if_nomatch,
-                        attrs_mod,
-                        attrs, RGW_OBJ_CATEGORY_MAIN,
-                        olh_epoch,
-                        (version_id.empty() ? NULL : &version_id),
-                        &s->req_id, /* use req_id as tag */
-                        &etag,
-                        &s->err,
-                        copy_obj_progress_cb, (void *)this
-                        );
+    rgw_obj src_obj(src_bucket, src_object);
+    rgw_obj dst_obj(dest_bucket, dest_object);
+
+    RGWObjectCtx& obj_ctx = *static_cast<RGWObjectCtx *>(s->obj_ctx);
+    obj_ctx.set_atomic(src_obj);
+    obj_ctx.set_atomic(dst_obj);
+
+    ret = store->copy_obj(obj_ctx,
+                          s->user.user_id,
+                          client_id,
+                          op_id,
+                          &s->info,
+                          source_zone,
+                          dst_obj,
+                          src_obj,
+                          dest_bucket_info,
+                          src_bucket_info,
+                          &src_mtime,
+                          &mtime,
+                          mod_ptr,
+                          unmod_ptr,
+                          if_match,
+                          if_nomatch,
+                          attrs_mod,
+                          attrs, RGW_OBJ_CATEGORY_MAIN,
+                          olh_epoch,
+                          (version_id.empty() ? NULL : &version_id),
+                          &s->req_id, /* use req_id as tag */
+                          &etag,
+                          &s->err,
+                          copy_obj_progress_cb, (void *)this
+                          );
+
+  } else {
+
+    RGWPutObjProcessor *processor = NULL;
+    char supplied_md5_bin[CEPH_CRYPTO_MD5_DIGESTSIZE + 1];
+    char supplied_md5[CEPH_CRYPTO_MD5_DIGESTSIZE * 2 + 1];
+    char calc_md5[CEPH_CRYPTO_MD5_DIGESTSIZE * 2 + 1];
+    unsigned char m[CEPH_CRYPTO_MD5_DIGESTSIZE];
+    MD5 hash;
+    bufferlist bl, aclbl;
+    map<string, bufferlist> attrs;
+    int len;
+    map<string, string>::iterator iter;
+    bool multipart;
+
+    bool need_calc_md5 = (obj_manifest == NULL);
+
+    off_t fst;
+    off_t lst;
+
+    perfcounter->inc(l_rgw_put);
+    ret = -EINVAL;
+    if (s->object.empty()) {
+      goto done;
+    }
+
+    ret = get_params();
+    if (ret < 0)
+      goto done;
+
+    ret = get_system_versioning_params(s, &olh_epoch, &version_id);
+    if (ret < 0) {
+      goto done;
+    }
+
+    if (supplied_md5_b64) {
+      need_calc_md5 = true;
+
+      ldout(s->cct, 15) << "supplied_md5_b64=" << supplied_md5_b64 << dendl;
+      ret = ceph_unarmor(supplied_md5_bin, &supplied_md5_bin[CEPH_CRYPTO_MD5_DIGESTSIZE + 1],
+                         supplied_md5_b64, supplied_md5_b64 + strlen(supplied_md5_b64));
+      ldout(s->cct, 15) << "ceph_armor ret=" << ret << dendl;
+      if (ret != CEPH_CRYPTO_MD5_DIGESTSIZE) {
+        ret = -ERR_INVALID_DIGEST;
+        goto done;
+      }
+
+      buf_to_hex((const unsigned char *)supplied_md5_bin, CEPH_CRYPTO_MD5_DIGESTSIZE, supplied_md5);
+      ldout(s->cct, 15) << "supplied_md5=" << supplied_md5 << dendl;
+    }
+
+    if (!chunked_upload) { /* with chunked upload we don't know how big is the upload.
+                              we also check sizes at the end anyway */
+      ret = store->check_quota(s->bucket_owner.get_id(), s->bucket,
+                               user_quota, bucket_quota, s->content_length);
+      if (ret < 0) {
+        goto done;
+      }
+    }
+
+    if (supplied_etag) {
+      strncpy(supplied_md5, supplied_etag, sizeof(supplied_md5) - 1);
+      supplied_md5[sizeof(supplied_md5) - 1] = '\0';
+    }
+
+    processor = select_processor(*static_cast<RGWObjectCtx *>(s->obj_ctx), &multipart);
+
+    ret = processor->prepare(store, NULL);
+    if (ret < 0)
+      goto done;
+
+    fst = copy_source_range_fst;
+    lst = copy_source_range_lst;
+
+    do {
+      bufferlist data;
+      if (fst > lst)
+        break;
+      ret = get_data(src_bucket_name, src_object.name, fst, lst, data);
+      if (ret < 0) {
+        goto done;
+      }
+      len = data.length();
+      s->content_length += len;
+      fst += len;
+      if (len < 0) {
+        ret = len;
+        goto done;
+      }
+      if (!len)
+        break;
+
+      /* do we need this operation to be synchronous? if we're dealing with an object with immutable
+       * head, e.g., multipart object we need to make sure we're the first one writing to this object
+       */
+      bool need_to_wait = (ofs == 0) && multipart;
+
+      bufferlist orig_data;
+
+      if (need_to_wait) {
+        orig_data = data;
+      }
+
+      ret = put_data_and_throttle(processor, data, ofs, (need_calc_md5 ? &hash : NULL), need_to_wait);
+      if (ret < 0) {
+        if (!need_to_wait || ret != -EEXIST) {
+          ldout(s->cct, 20) << "processor->thottle_data() returned ret=" << ret << dendl;
+          goto done;
+        }
+
+        ldout(s->cct, 5) << "NOTICE: processor->throttle_data() returned -EEXIST, need to restart write" << dendl;
+
+        /* restore original data */
+        data.swap(orig_data);
+
+        /* restart processing with different oid suffix */
+
+        dispose_processor(processor);
+        processor = select_processor(*static_cast<RGWObjectCtx *>(s->obj_ctx), &multipart);
+
+        string oid_rand;
+        char buf[33];
+        gen_rand_alphanumeric(store->ctx(), buf, sizeof(buf) - 1);
+        oid_rand.append(buf);
+
+        ret = processor->prepare(store, &oid_rand);
+        if (ret < 0) {
+          ldout(s->cct, 0) << "ERROR: processor->prepare() returned " << ret << dendl;
+          goto done;
+        }
+
+        ret = put_data_and_throttle(processor, data, ofs, NULL, false);
+        if (ret < 0) {
+          goto done;
+        }
+      }
+
+      ofs += len;
+    } while (len > 0);
+
+    if (!chunked_upload && ofs != s->content_length) {
+      ret = -ERR_REQUEST_TIMEOUT;
+      goto done;
+    }
+    s->obj_size = ofs;
+    perfcounter->inc(l_rgw_put_b, s->obj_size);
+
+    ret = store->check_quota(s->bucket_owner.get_id(), s->bucket,
+                             user_quota, bucket_quota, s->obj_size);
+    if (ret < 0) {
+      goto done;
+    }
+
+    if (need_calc_md5) {
+      processor->complete_hash(&hash);
+      hash.Final(m);
+
+      buf_to_hex(m, CEPH_CRYPTO_MD5_DIGESTSIZE, calc_md5);
+      etag = calc_md5;
+
+      if (supplied_md5_b64 && strcmp(calc_md5, supplied_md5)) {
+        ret = -ERR_BAD_DIGEST;
+        goto done;
+      }
+    }
+
+    policy.encode(aclbl);
+
+    attrs[RGW_ATTR_ACL] = aclbl;
+    if (obj_manifest) {
+      bufferlist manifest_bl;
+      string manifest_obj_prefix;
+      string manifest_bucket;
+
+      char etag_buf[CEPH_CRYPTO_MD5_DIGESTSIZE];
+      char etag_buf_str[CEPH_CRYPTO_MD5_DIGESTSIZE * 2 + 16];
+
+      manifest_bl.append(obj_manifest, strlen(obj_manifest) + 1);
+      attrs[RGW_ATTR_USER_MANIFEST] = manifest_bl;
+      user_manifest_parts_hash = &hash;
+      string prefix_str = obj_manifest;
+      int pos = prefix_str.find('/');
+      if (pos < 0) {
+        ldout(s->cct, 0) << "bad user manifest, missing slash separator: " << obj_manifest << dendl;
+        goto done;
+      }
+
+      manifest_bucket = prefix_str.substr(0, pos);
+      manifest_obj_prefix = prefix_str.substr(pos + 1);
+
+      hash.Final((byte *)etag_buf);
+      buf_to_hex((const unsigned char *)etag_buf, CEPH_CRYPTO_MD5_DIGESTSIZE, etag_buf_str);
+
+      ldout(s->cct, 0) << __func__ << ": calculated md5 for user manifest: " << etag_buf_str << dendl;
+
+      etag = etag_buf_str;
+    }
+    if (supplied_etag && etag.compare(supplied_etag) != 0) {
+      ret = -ERR_UNPROCESSABLE_ENTITY;
+      goto done;
+    }
+    bl.append(etag.c_str(), etag.size() + 1);
+    attrs[RGW_ATTR_ETAG] = bl;
+
+    for (iter = s->generic_attrs.begin(); iter != s->generic_attrs.end(); ++iter) {
+      bufferlist& attrbl = attrs[iter->first];
+      const string& val = iter->second;
+      attrbl.append(val.c_str(), val.size() + 1);
+    }
+
+    rgw_get_request_metadata(s->cct, s->info, attrs);
+
+    ret = processor->complete(etag, &mtime, 0, attrs, if_match, if_nomatch);
+  done:
+    dispose_processor(processor);
+    perfcounter->tinc(l_rgw_put_lat,
+                     (ceph_clock_now(s->cct) - s->time));
+
+  }
+
 }
 
 int RGWGetACLs::verify_permission()

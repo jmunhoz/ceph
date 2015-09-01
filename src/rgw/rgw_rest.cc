@@ -868,6 +868,13 @@ int RGWPutObj_ObjStore::get_data(bufferlist& bl)
   return len;
 }
 
+int RGWCopyObj_ObjStore::get_params()
+{
+  supplied_md5_b64 = s->info.env->get("HTTP_CONTENT_MD5");
+
+  return 0;
+}
+
 int RGWPostObj_ObjStore::verify_params()
 {
   /*  check that we have enough memory to store the object
