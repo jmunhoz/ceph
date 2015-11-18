@@ -645,12 +645,13 @@ struct rgw_usage_log_entry {
   uint64_t epoch;
   rgw_usage_data total_usage; /* this one is kept for backwards compatibility */
   map<string, rgw_usage_data> usage_map;
+  string requester;
 
   rgw_usage_log_entry() : epoch(0) {}
-  rgw_usage_log_entry(string& o, string& b) : owner(o), bucket(b), epoch(0) {}
+  rgw_usage_log_entry(string& o, string &r, string& b) : owner(o), bucket(b), epoch(0), requester(r) {}
 
   void encode(bufferlist& bl) const {
-    ENCODE_START(2, 1, bl);
+    ENCODE_START(3, 1, bl);
     ::encode(owner, bl);
     ::encode(bucket, bl);
     ::encode(epoch, bl);
@@ -659,12 +660,13 @@ struct rgw_usage_log_entry {
     ::encode(total_usage.ops, bl);
     ::encode(total_usage.successful_ops, bl);
     ::encode(usage_map, bl);
+    ::encode(requester, bl);
     ENCODE_FINISH(bl);
   }
 
 
    void decode(bufferlist::iterator& bl) {
-    DECODE_START(2, bl);
+    DECODE_START(3, bl);
     ::decode(owner, bl);
     ::decode(bucket, bl);
     ::decode(epoch, bl);
@@ -677,6 +679,11 @@ struct rgw_usage_log_entry {
     } else {
       ::decode(usage_map, bl);
     }
+    if (struct_v < 3) {
+      requester = owner;
+    } else {
+      ::decode(requester, bl);
+    }
     DECODE_FINISH(bl);
   }
 
@@ -685,6 +692,7 @@ struct rgw_usage_log_entry {
       owner = e.owner;
       bucket = e.bucket;
       epoch = e.epoch;
+      requester = e.requester;
     }
     map<string, rgw_usage_data>::const_iterator iter;
     for (iter = e.usage_map.begin(); iter != e.usage_map.end(); ++iter) {
@@ -731,15 +739,17 @@ WRITE_CLASS_ENCODER(rgw_usage_log_info)
 
 struct rgw_user_bucket {
   string user;
+  string owner;
   string bucket;
 
   rgw_user_bucket() {}
-  rgw_user_bucket(string &u, string& b) : user(u), bucket(b) {}
+  rgw_user_bucket(string &u, string &o, string& b) : user(u), owner(o), bucket(b) {}
 
   void encode(bufferlist& bl) const {
     ENCODE_START(1, 1, bl);
     ::encode(user, bl);
     ::encode(bucket, bl);
+    ::encode(owner, bl);
     ENCODE_FINISH(bl);
   }
 
@@ -747,6 +757,7 @@ struct rgw_user_bucket {
     DECODE_START(1, bl);
     ::decode(user, bl);
     ::decode(bucket, bl);
+    ::decode(owner, bl);
     DECODE_FINISH(bl);
   }
 
@@ -754,9 +765,16 @@ struct rgw_user_bucket {
     int comp = user.compare(ub2.user);
     if (comp < 0)
       return true;
-    else if (!comp)
+
+    if (!comp) {
+      comp = owner.compare(ub2.owner);
+      if (comp < 0)
+        return true;
+    }
+
+    if (!comp)
       return bucket.compare(ub2.bucket) < 0;
-  
+
     return false;
   }
 };

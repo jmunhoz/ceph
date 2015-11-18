@@ -2474,17 +2474,17 @@ static void usage_record_prefix_by_user(string& user, uint64_t epoch, string& ke
   key = buf;
 }
 
-static void usage_record_name_by_time(uint64_t epoch, string& user, string& bucket, string& key)
+static void usage_record_name_by_time(uint64_t epoch, string& user, string &owner, string& bucket, string& key)
 {
   char buf[32 + user.size() + bucket.size()];
-  snprintf(buf, sizeof(buf), "%011llu_%s_%s", (long long unsigned)epoch, user.c_str(), bucket.c_str());
+  snprintf(buf, sizeof(buf), "%011llu_%s_%s_%s", (long long unsigned)epoch, user.c_str(), owner.c_str(), bucket.c_str());
   key = buf;
 }
 
-static void usage_record_name_by_user(string& user, uint64_t epoch, string& bucket, string& key)
+static void usage_record_name_by_user(string& user, uint64_t epoch, string& owner, string& bucket, string& key)
 {
   char buf[32 + user.size() + bucket.size()];
-  snprintf(buf, sizeof(buf), "%s_%011llu_%s", user.c_str(), (long long unsigned)epoch, bucket.c_str());
+  snprintf(buf, sizeof(buf), "%s_%011llu_%s_%s", user.c_str(), (long long unsigned)epoch, owner.c_str(), bucket.c_str());
   key = buf;
 }
 
@@ -2521,9 +2521,9 @@ int rgw_user_usage_log_add(cls_method_context_t hctx, bufferlist *in, bufferlist
   for (iter = info.entries.begin(); iter != info.entries.end(); ++iter) {
     rgw_usage_log_entry& entry = *iter;
     string key_by_time;
-    usage_record_name_by_time(entry.epoch, entry.owner, entry.bucket, key_by_time);
+    usage_record_name_by_time(entry.epoch, entry.requester, entry.owner, entry.bucket, key_by_time);
 
-    CLS_LOG(10, "rgw_user_usage_log_add user=%s bucket=%s\n", entry.owner.c_str(), entry.bucket.c_str());
+    CLS_LOG(10, "rgw_user_usage_log_add user=%s bucket=%s\n", entry.requester.c_str(), entry.bucket.c_str());
 
     bufferlist record_bl;
     int ret = cls_cxx_map_get_val(hctx, key_by_time, &record_bl);
@@ -2547,7 +2547,7 @@ int rgw_user_usage_log_add(cls_method_context_t hctx, bufferlist *in, bufferlist
       return ret;
 
     string key_by_user;
-    usage_record_name_by_user(entry.owner, entry.epoch, entry.bucket, key_by_user);
+    usage_record_name_by_user(entry.requester, entry.epoch, entry.owner, entry.bucket, key_by_user);
     ret = cls_cxx_map_set_val(hctx, key_by_user, &new_record_bl);
     if (ret < 0)
       return ret;
@@ -2649,7 +2649,7 @@ static int usage_iterate_range(cls_method_context_t hctx, uint64_t start, uint64
 static int usage_log_read_cb(cls_method_context_t hctx, const string& key, rgw_usage_log_entry& entry, void *param)
 {
   map<rgw_user_bucket, rgw_usage_log_entry> *usage = (map<rgw_user_bucket, rgw_usage_log_entry> *)param;
-  rgw_user_bucket ub(entry.owner, entry.bucket);
+  rgw_user_bucket ub(entry.requester, entry.owner, entry.bucket);
   rgw_usage_log_entry& le = (*usage)[ub];
   le.aggregate(entry);
  
@@ -2675,7 +2675,7 @@ int rgw_user_usage_log_read(cls_method_context_t hctx, bufferlist *in, bufferlis
   string iter = op.iter;
 #define MAX_ENTRIES 1000
   uint32_t max_entries = (op.max_entries ? op.max_entries : MAX_ENTRIES);
-  int ret = usage_iterate_range(hctx, op.start_epoch, op.end_epoch, op.owner, iter, max_entries, &ret_info.truncated, usage_log_read_cb, (void *)usage);
+  int ret = usage_iterate_range(hctx, op.start_epoch, op.end_epoch, op.user, iter, max_entries, &ret_info.truncated, usage_log_read_cb, (void *)usage);
   if (ret < 0)
     return ret;
 
@@ -2691,8 +2691,8 @@ static int usage_log_trim_cb(cls_method_context_t hctx, const string& key, rgw_u
   string key_by_time;
   string key_by_user;
 
-  usage_record_name_by_time(entry.epoch, entry.owner, entry.bucket, key_by_time);
-  usage_record_name_by_user(entry.owner, entry.epoch, entry.bucket, key_by_user);
+  usage_record_name_by_time(entry.epoch, entry.requester, entry.owner, entry.bucket, key_by_time);
+  usage_record_name_by_user(entry.requester, entry.epoch, entry.owner, entry.bucket, key_by_user);
 
   int ret = cls_cxx_map_remove_key(hctx, key_by_time);
   if (ret < 0)

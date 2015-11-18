@@ -131,7 +131,7 @@ public:
       recalc_round_timestamp(timestamp);
     entry.epoch = round_timestamp.sec();
     bool account;
-    rgw_user_bucket ub(entry.owner, entry.bucket);
+    rgw_user_bucket ub(entry.requester, entry.owner, entry.bucket);
     usage_map[ub].insert(round_timestamp, entry, &account);
     if (account)
       num_entries++;
@@ -175,14 +175,16 @@ static void log_usage(struct req_state *s, const string& op_name)
   if (!usage_logger)
     return;
 
-  string user;
+  string owner;
 
   if (!s->bucket_name_str.empty())
-    user = s->bucket_owner.get_id();
+    owner = s->bucket_owner.get_id();
   else
-    user = s->user.user_id;
+    owner = s->user.user_id;
 
-  rgw_usage_log_entry entry(user, s->bucket.name);
+  string requester = s->user.user_id;
+
+  rgw_usage_log_entry entry(owner, requester, s->bucket.name);
 
   uint64_t bytes_sent = s->cio->get_bytes_sent();
   uint64_t bytes_received = s->cio->get_bytes_received();

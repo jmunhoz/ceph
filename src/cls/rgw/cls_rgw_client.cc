@@ -523,7 +523,7 @@ int cls_rgw_usage_log_read(IoCtx& io_ctx, string& oid, string& user,
   rgw_cls_usage_log_read_op call;
   call.start_epoch = start_epoch;
   call.end_epoch = end_epoch;
-  call.owner = user;
+  call.user = user;
   call.max_entries = max_entries;
   call.iter = read_iter;
   ::encode(call, in);
