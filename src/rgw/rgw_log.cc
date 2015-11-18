@@ -195,7 +195,13 @@ static void log_usage(struct req_state *s, const string& op_name)
   if (!s->err.is_err())
     data.successful_ops = 1;
 
-  entry.add(op_name, data);
+  string op_name_with_payer = op_name;
+  if (s->bucket_info.requester_pays)
+    op_name_with_payer.append("_1");
+  else
+    op_name_with_payer.append("_0");
+
+  entry.add(op_name_with_payer, data);
 
   utime_t ts = ceph_clock_now(s->cct);
 
