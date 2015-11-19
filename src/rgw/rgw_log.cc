@@ -197,9 +197,7 @@ static void log_usage(struct req_state *s, const string& op_name)
 
   string op_name_with_payer = op_name;
   if (s->bucket_info.requester_pays)
-    op_name_with_payer.append("_1");
-  else
-    op_name_with_payer.append("_0");
+    op_name_with_payer.append("_requester_pays");
 
   entry.add(op_name_with_payer, data);
 

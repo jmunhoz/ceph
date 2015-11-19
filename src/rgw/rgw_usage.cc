@@ -20,7 +20,15 @@ static void dump_usage_categories_info(Formatter *formatter, const rgw_usage_log
       continue;
     const rgw_usage_data& usage = uiter->second;
     formatter->open_object_section("entry");
-    formatter->dump_string("category", uiter->first);
+    string name = uiter->first;
+    std::size_t pos = name.find("_requester_pays");
+    if (pos != std::string::npos) {
+      formatter->dump_string("category", name.substr(0, pos));
+      formatter->dump_string("payer", "requester");
+    } else {
+      formatter->dump_string("category", name);
+      formatter->dump_string("payer", "owner");
+    }
     formatter->dump_int("bytes_sent", usage.bytes_sent);
     formatter->dump_int("bytes_received", usage.bytes_received);
     formatter->dump_int("ops", usage.ops);
