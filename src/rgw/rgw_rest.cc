@@ -881,6 +881,72 @@ int RGWPutObj_ObjStore::get_data(bufferlist& bl)
   return len;
 }
 
+int RGWPutObj_ObjStore::get_data(string bucket_name, string object_name, off_t fst, off_t lst, bufferlist& bl)
+{
+  return 0;
+}
+
+int RGWCopyObj_ObjStore::get_params()
+{
+  supplied_md5_b64 = s->info.env->get("HTTP_CONTENT_MD5");
+
+  return 0;
+}
+
+class RGWCopyObj_CB : public RGWGetDataCB
+{
+  RGWCopyObj *op;
+public:
+  RGWCopyObj_CB(RGWCopyObj *_op) : op(_op) {}
+  virtual ~RGWCopyObj_CB() {}
+
+  int handle_data(bufferlist& bl, off_t bl_ofs, off_t bl_len) {
+    return op->get_data_cb(bl, bl_ofs, bl_len);
+  }
+};
+
+int RGWCopyObj_ObjStore::get_data(bufferlist& bl)
+{
+  return 0;
+}
+
+int RGWCopyObj_ObjStore::get_data(string bucket_name, string object_name, off_t fst, off_t lst, bufferlist& bl)
+{
+  RGWObjectCtx& obj_ctx = *static_cast<RGWObjectCtx *>(s->obj_ctx);
+  RGWBucketInfo bucket_info;
+  RGWCopyObj_CB cb(this);
+  int ret = 0;
+
+  ret = store->get_bucket_info(obj_ctx, bucket_name, bucket_info, NULL);
+  if (ret < 0) {
+    return ret;
+  }
+
+  int64_t new_ofs, new_end;
+
+  new_ofs = fst;
+  new_end = lst;
+
+  rgw_obj_key obj_key(object_name);
+  rgw_obj obj(bucket_info.bucket, obj_key);
+
+  RGWRados::Object op_target(store, bucket_info, *static_cast<RGWObjectCtx *>(s->obj_ctx), obj);
+  RGWRados::Object::Read read_op(&op_target);
+
+  ret = read_op.prepare(&new_ofs, &new_end);
+  if (ret < 0)
+    return ret;
+
+  ret = read_op.iterate(new_ofs, new_end, &cb);
+  if (ret < 0) {
+    return ret;
+  }
+
+  bl_aux.copy(0, bl_aux.length(), bl);
+
+  return ret;
+}
+
 int RGWPostObj_ObjStore::verify_params()
 {
   /*  check that we have enough memory to store the object

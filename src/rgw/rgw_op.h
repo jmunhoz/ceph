@@ -419,10 +419,7 @@ public:
   virtual uint32_t op_mask() { return RGW_OP_TYPE_DELETE; }
 };
 
-class RGWPutObj : public RGWOp {
-
-  friend class RGWPutObjProcessor;
-
+class RGWPutCopyObj : public RGWOp {
 protected:
   int ret;
   off_t ofs;
@@ -430,18 +427,58 @@ protected:
   const char *supplied_etag;
   const char *if_match;
   const char *if_nomatch;
-  string etag;
   bool chunked_upload;
-  RGWAccessControlPolicy policy;
   const char *obj_manifest;
   time_t mtime;
-
   MD5 *user_manifest_parts_hash;
-
   uint64_t olh_epoch;
-  string version_id;
-
   time_t delete_at;
+
+  string version_id;
+  string etag;
+
+  RGWAccessControlPolicy policy;
+
+  const char *copy_source_range;
+  map<string, bufferlist> attrs;
+  rgw_bucket src_bucket;
+  rgw_obj_key src_object;
+  rgw_bucket dest_bucket;
+  string dest_object;
+
+  string client_id;
+  string op_id;
+  RGWBucketInfo src_bucket_info;
+  RGWBucketInfo dest_bucket_info;
+  string source_zone;
+  time_t src_mtime;
+  time_t *mod_ptr;
+  time_t *unmod_ptr;
+  RGWRados::AttrsMod attrs_mod;
+
+  off_t copy_source_range_fst = 0;
+  off_t copy_source_range_lst = 0;
+  string src_bucket_name;
+
+public:
+  void execute();
+
+  virtual int get_params() = 0;
+  virtual int get_data(bufferlist& bl) = 0;
+  virtual int get_data(string bucket_name, string object_name, off_t fst, off_t lst, bufferlist& bl) = 0;
+  virtual RGWPutObjProcessor *select_processor(RGWObjectCtx& obj_ctx, bool *is_multipart) = 0;
+  virtual void dispose_processor(RGWPutObjProcessor *processor) = 0;
+
+  virtual int init_common() = 0;
+
+};
+
+class RGWPutObj : public RGWPutCopyObj {
+
+  friend class RGWPutObjProcessor;
+
+protected:
+  int init_common();
 
 public:
   RGWPutObj() {
@@ -469,10 +506,10 @@ public:
 
   int verify_permission();
   void pre_exec();
-  void execute();
 
   virtual int get_params() = 0;
   virtual int get_data(bufferlist& bl) = 0;
+  virtual int get_data(string bucket_name, string object_name, off_t fst, off_t lst, bufferlist& bl) = 0;
   virtual void send_response() = 0;
   virtual const string name() { return "put_obj"; }
   virtual RGWOpType get_type() { return RGW_OP_PUT_OBJ; }
@@ -631,49 +668,29 @@ public:
   virtual bool need_object_expiration() { return false; }
 };
 
-class RGWCopyObj : public RGWOp {
+class RGWCopyObj : public RGWPutCopyObj {
 protected:
   RGWAccessControlPolicy dest_policy;
+  const char *copy_source;
   const char *if_mod;
   const char *if_unmod;
-  const char *if_match;
-  const char *if_nomatch;
-  off_t ofs;
   off_t len;
   off_t end;
   time_t mod_time;
   time_t unmod_time;
-  time_t *mod_ptr;
-  time_t *unmod_ptr;
-  int ret;
-  map<string, bufferlist> attrs;
-  string src_bucket_name;
-  rgw_bucket src_bucket;
-  rgw_obj_key src_object;
   string dest_bucket_name;
-  rgw_bucket dest_bucket;
-  string dest_object;
-  time_t src_mtime;
-  time_t mtime;
   RGWRados::AttrsMod attrs_mod;
-  RGWBucketInfo src_bucket_info;
-  RGWBucketInfo dest_bucket_info;
-  string source_zone;
-  string client_id;
-  string op_id;
-  string etag;
 
   off_t last_ofs;
 
-  string version_id;
-  uint64_t olh_epoch;
-
-  time_t delete_at;
+  bufferlist bl_aux;
 
   int init_common();
 
 public:
   RGWCopyObj() {
+    copy_source = NULL;
+    copy_source_range = NULL;
     if_mod = NULL;
     if_unmod = NULL;
     if_match = NULL;
@@ -692,18 +709,31 @@ public:
     last_ofs = 0;
     olh_epoch = 0;
     delete_at = 0;
+    supplied_md5_b64 = NULL;
+    obj_manifest = NULL;
+    chunked_upload = false;
+    supplied_etag = NULL;
+    user_manifest_parts_hash = NULL;
   }
 
   static bool parse_copy_location(const string& src, string& bucket_name, rgw_obj_key& object);
 
   virtual void init(RGWRados *store, struct req_state *s, RGWHandler *h) {
     RGWOp::init(store, s, h);
+    policy.set_ctx(s->cct);
     dest_policy.set_ctx(s->cct);
   }
+
+  RGWPutObjProcessor *select_processor(RGWObjectCtx& obj_ctx, bool *is_multipart);
+  void dispose_processor(RGWPutObjProcessor *processor);
+
   int verify_permission();
   void pre_exec();
-  void execute();
+
   void progress_cb(off_t ofs);
+  int get_data_cb(bufferlist& bl, off_t bl_ofs, off_t bl_len);
+  virtual int get_data(bufferlist& bl) = 0;
+  virtual int get_data(string bucket_name, string object_name, off_t fst, off_t lst, bufferlist& bl) = 0;
 
   virtual int init_dest_policy() { return 0; }
   virtual int get_params() = 0;

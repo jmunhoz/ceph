@@ -149,9 +149,10 @@ public:
   RGWPutObj_ObjStore() {}
   ~RGWPutObj_ObjStore() {}
 
-  virtual int verify_params();
-  virtual int get_params();
+  int verify_params();
+  int get_params();
   int get_data(bufferlist& bl);
+  int get_data(string bucket_name, string object_name, off_t fst, off_t lst, bufferlist& bl);
 };
 
 class RGWPostObj_ObjStore : public RGWPostObj
@@ -194,6 +195,10 @@ class RGWCopyObj_ObjStore : public RGWCopyObj {
 public:
   RGWCopyObj_ObjStore() {}
   ~RGWCopyObj_ObjStore() {}
+
+  int get_params();
+  int get_data(bufferlist& bl);
+  int get_data(string bucket_name, string object_name, off_t fst, off_t lst, bufferlist& bl);
 };
 
 class RGWGetACLs_ObjStore : public RGWGetACLs {
