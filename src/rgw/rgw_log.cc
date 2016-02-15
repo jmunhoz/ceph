@@ -193,8 +193,17 @@ static void log_usage(struct req_state *s, const string& op_name)
   rgw_usage_data data(bytes_sent, bytes_received);
 
   data.ops = 1;
-  if (!s->err.is_err())
+
+  bool requester_pays = s->bucket_info.requester_pays;
+
+  if (requester_pays)
+    data.requester_pays_ops = 1;
+
+  if (!s->err.is_err()) {
     data.successful_ops = 1;
+    if (requester_pays)
+      data.requester_pays_successful_ops = 1;
+  }
 
   entry.add(op_name, data);
 

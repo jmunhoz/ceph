@@ -25,6 +25,10 @@ static void dump_usage_categories_info(Formatter *formatter, const rgw_usage_log
     formatter->dump_int("bytes_received", usage.bytes_received);
     formatter->dump_int("ops", usage.ops);
     formatter->dump_int("successful_ops", usage.successful_ops);
+    if (usage.requester_pays_ops != 0) {
+      formatter->dump_int("requester_pays_ops", usage.requester_pays_ops);
+      formatter->dump_int("requester_pays_successful_ops", usage.requester_pays_successful_ops);
+    }
     formatter->close_section(); // entry
   }
   formatter->close_section(); // categories
@@ -119,6 +123,8 @@ int RGWUsage::show(RGWRados *store, rgw_user& uid, uint64_t start_epoch,
       formatter->dump_int("bytes_received", total_usage.bytes_received);
       formatter->dump_int("ops", total_usage.ops);
       formatter->dump_int("successful_ops", total_usage.successful_ops);
+      formatter->dump_int("requester_pays_ops", total_usage.requester_pays_ops);
+      formatter->dump_int("requester_pays_successful_ops", total_usage.requester_pays_successful_ops);
       formatter->close_section(); // total
 
       formatter->close_section(); // user

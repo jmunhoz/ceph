@@ -607,25 +607,44 @@ struct rgw_usage_data {
   uint64_t bytes_received;
   uint64_t ops;
   uint64_t successful_ops;
+  uint64_t requester_pays_ops;
+  uint64_t requester_pays_successful_ops;
 
-  rgw_usage_data() : bytes_sent(0), bytes_received(0), ops(0), successful_ops(0) {}
-  rgw_usage_data(uint64_t sent, uint64_t received) : bytes_sent(sent), bytes_received(received), ops(0), successful_ops(0) {}
+  rgw_usage_data() : bytes_sent(0),
+                     bytes_received(0),
+                     ops(0),
+                     successful_ops(0),
+                     requester_pays_ops(0),
+                     requester_pays_successful_ops(0) {}
+
+  rgw_usage_data(uint64_t sent, uint64_t received) : bytes_sent(sent),
+                                                     bytes_received(received),
+                                                     ops(0),
+                                                     successful_ops(0),
+                                                     requester_pays_ops(0),
+                                                     requester_pays_successful_ops(0) {}
 
   void encode(bufferlist& bl) const {
-    ENCODE_START(1, 1, bl);
+    ENCODE_START(2, 1, bl);
     ::encode(bytes_sent, bl);
     ::encode(bytes_received, bl);
     ::encode(ops, bl);
     ::encode(successful_ops, bl);
+    ::encode(requester_pays_ops, bl);
+    ::encode(requester_pays_successful_ops, bl);
     ENCODE_FINISH(bl);
   }
 
   void decode(bufferlist::iterator& bl) {
-    DECODE_START(1, bl);
+    DECODE_START(2, bl);
     ::decode(bytes_sent, bl);
     ::decode(bytes_received, bl);
     ::decode(ops, bl);
     ::decode(successful_ops, bl);
+    if (struct_v >= 2) {
+      ::decode(requester_pays_ops, bl);
+      ::decode(requester_pays_successful_ops, bl);
+    }
     DECODE_FINISH(bl);
   }
 
@@ -634,6 +653,8 @@ struct rgw_usage_data {
     bytes_received += usage.bytes_received;
     ops += usage.ops;
     successful_ops += usage.successful_ops;
+    requester_pays_ops += usage.requester_pays_ops;
+    requester_pays_successful_ops += usage.requester_pays_successful_ops;
   }
 };
 WRITE_CLASS_ENCODER(rgw_usage_data)
