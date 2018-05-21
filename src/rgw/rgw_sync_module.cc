@@ -59,6 +59,9 @@ void rgw_register_sync_modules(RGWSyncModulesManager *modules_manager)
   RGWSyncModuleRef default_module(std::make_shared<RGWDefaultSyncModule>());
   modules_manager->register_module("rgw", default_module, true);
 
+  RGWSyncModuleRef backup_module(std::make_shared<RGWBackupSyncModule>());
+  modules_manager->register_module("backup", backup_module);
+
   RGWSyncModuleRef log_module(std::make_shared<RGWLogSyncModule>());
   modules_manager->register_module("log", log_module);
 

@@ -1754,6 +1754,67 @@ RGWCoroutine *RGWDefaultDataSyncModule::create_delete_marker(RGWDataSyncEnv *syn
                             &owner.id, &owner.display_name, true, &mtime, zones_trace);
 }
 
+class RGWBackupDataSyncModule : public RGWDefaultDataSyncModule {
+public:
+  RGWBackupDataSyncModule() {}
+
+  RGWCoroutine *sync_object(RGWDataSyncEnv *sync_env, RGWBucketInfo& bucket_info, rgw_obj_key& key, uint64_t versioned_epoch, rgw_zone_set *zones_trace) override;
+  RGWCoroutine *remove_object(RGWDataSyncEnv *sync_env, RGWBucketInfo& bucket_info, rgw_obj_key& key, real_time& mtime, bool versioned, uint64_t versioned_epoch, rgw_zone_set *zones_trace) override;
+  RGWCoroutine *create_delete_marker(RGWDataSyncEnv *sync_env, RGWBucketInfo& bucket_info, rgw_obj_key& key, real_time& mtime,
+                                     rgw_bucket_entry_owner& owner, bool versioned, uint64_t versioned_epoch, rgw_zone_set *zones_trace) override;
+};
+
+class RGWBackupSyncModuleInstance : public RGWDefaultSyncModuleInstance {
+  RGWBackupDataSyncModule data_handler;
+public:
+  RGWBackupSyncModuleInstance() {}
+  RGWDataSyncModule *get_data_handler() override {
+    return &data_handler;
+  }
+};
+
+int RGWBackupSyncModule::create_instance(CephContext *cct, const JSONFormattable& config, RGWSyncModuleInstanceRef *instance)
+{
+  instance->reset(new RGWBackupSyncModuleInstance());
+  return 0;
+}
+
+RGWCoroutine *RGWBackupDataSyncModule::sync_object(RGWDataSyncEnv *sync_env, RGWBucketInfo& bucket_info, rgw_obj_key& key, uint64_t versioned_epoch, rgw_zone_set *zones_trace)
+{
+  ldout(sync_env->cct, 0) << "SYNC_BACKUP: sync_object: b=" << bucket_info.bucket << " k=" << key << " versioned_epoch=" << versioned_epoch << dendl;
+  if (!bucket_info.versioned() ||
+     (bucket_info.flags & BUCKET_VERSIONS_SUSPENDED)) {
+      ldout(sync_env->cct, 0) << "SYNC_BACKUP: sync_object: enabling object versioning for backup bucket" << dendl;
+      bucket_info.flags |= BUCKET_VERSIONED;
+      bucket_info.flags &= ~BUCKET_VERSIONS_SUSPENDED;
+      int op_ret = sync_env->store->put_bucket_instance_info(bucket_info, false, real_time(), NULL);
+      if (op_ret < 0) {
+         ldout(sync_env->cct, 0) << "SYNC_BACKUP: sync_object: error versioning backup bucket" << dendl;
+         return NULL;
+      }
+  }
+  return new RGWFetchRemoteObjCR(sync_env->async_rados, sync_env->store, sync_env->source_zone, bucket_info,
+                                 key, versioned_epoch,
+                                 true, zones_trace);
+}
+
+RGWCoroutine *RGWBackupDataSyncModule::remove_object(RGWDataSyncEnv *sync_env, RGWBucketInfo& bucket_info, rgw_obj_key& key,
+                                                     real_time& mtime, bool versioned, uint64_t versioned_epoch, rgw_zone_set *zones_trace)
+{
+  ldout(sync_env->cct, 0) << "SYNC_BACKUP: remove_object: b=" << bucket_info.bucket << " k=" << key << " versioned_epoch=" << versioned_epoch << dendl;
+  return NULL;
+}
+
+RGWCoroutine *RGWBackupDataSyncModule::create_delete_marker(RGWDataSyncEnv *sync_env, RGWBucketInfo& bucket_info, rgw_obj_key& key, real_time& mtime,
+                                                            rgw_bucket_entry_owner& owner, bool versioned, uint64_t versioned_epoch, rgw_zone_set *zones_trace)
+{
+  ldout(sync_env->cct, 0) << "SYNC_BACKUP: create_delete_marker: b=" << bucket_info.bucket << " k=" << key << " mtime=" << mtime
+	                            << " versioned=" << versioned << " versioned_epoch=" << versioned_epoch << dendl;
+  return new RGWRemoveObjCR(sync_env->async_rados, sync_env->store, sync_env->source_zone,
+                            bucket_info, key, versioned, versioned_epoch,
+                            &owner.id, &owner.display_name, true, &mtime, zones_trace);
+}
+
 class RGWDataSyncControlCR : public RGWBackoffControlCR
 {
   RGWDataSyncEnv *sync_env;
